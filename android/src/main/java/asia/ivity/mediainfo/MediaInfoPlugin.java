@@ -221,8 +221,13 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
                   future.complete(info);
                   return;
                 } else if (mimeType.contains("audio")) {
+                  
+                  MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
+                mediaMetadataRetriever.setDataSource(path);
+                String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                  
                   AudioDetail audio =
-                      new AudioDetail(exoPlayer.getDuration(), format.bitrate, mimeType);
+                      new AudioDetail(parseLong(durationStr), format.bitrate, mimeType);
                   future.complete(audio);
                   return;
                 }
