@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.media.MediaMetadataRetriever;
 import androidx.annotation.NonNull;
 import asia.ivity.mediainfo.util.OutputSurface;
 import com.google.android.exoplayer2.C;
