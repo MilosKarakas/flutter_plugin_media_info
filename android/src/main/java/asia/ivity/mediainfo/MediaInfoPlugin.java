@@ -224,8 +224,8 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
                 } else if (mimeType.contains("audio")) {
                   
                   MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
-                mediaMetadataRetriever.setDataSource(path);
-                String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                  mediaMetadataRetriever.setDataSource(path);
+                  String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                   
                   AudioDetail audio =
                       new AudioDetail(Long.parseLong(durationStr), format.bitrate, mimeType);
