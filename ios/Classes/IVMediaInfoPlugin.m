@@ -78,7 +78,7 @@
       if ([tracks count] > 0) {
         AVAssetTrack *track = [tracks objectAtIndex:0];
           
-      [d setValue:[NSNumber numberWithLong:CMTimeMultiplyByRatio(track.timeRange.duration, 1, 1000)]
+      [d setValue:[NSNumber numberWithLong:CMTimeGetSeconds(track.timeRange.duration) * 1000]
            forKey:@"durationMs"];
 
       } else {
