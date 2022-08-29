@@ -11,17 +11,21 @@ import android.media.MediaMetadataRetriever;
 import androidx.annotation.NonNull;
 import asia.ivity.mediainfo.util.OutputSurface;
 import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
+import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Player.Listener;
-import com.google.android.exoplayer2.Tracks;
+import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
+import com.google.android.exoplayer2.source.TrackGroup;
+import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DefaultDataSource;
-import com.google.common.collect.ImmutableList;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.util.Util;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
@@ -71,18 +75,18 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
 
   private Handler mainThreadHandler;
 
-  private ExoPlayer exoPlayer;
+  private SimpleExoPlayer exoPlayer;
 
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
     if (executorService == null) {
       if (USE_EXOPLAYER) {
         executorService =
-            new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+                new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
       } else {
         executorService =
-            (ThreadPoolExecutor)
-                Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+                (ThreadPoolExecutor)
+                        Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       }
     }
 
@@ -109,14 +113,14 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
       }
 
       handleThumbnail(
-          applicationContext,
-          call.argument("path"),
-          call.argument("target"),
-          width,
-          height,
-          positionMs,
-          result,
-          mainThreadHandler);
+              applicationContext,
+              call.argument("path"),
+              call.argument("target"),
+              width,
+              height,
+              positionMs,
+              result,
+              mainThreadHandler);
     }
   }
 
@@ -125,134 +129,131 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
       final CompletableFuture<MediaDetail> future = new CompletableFuture<>();
 
       executorService.execute(
-          () -> {
-            mainThreadHandler.post(() -> handleMediaInfoExoPlayer(context, path, future));
+              () -> {
+                mainThreadHandler.post(() -> handleMediaInfoExoPlayer(context, path, future));
 
-            try {
-              MediaDetail info = future.get();
-              mainThreadHandler.post(
-                  () -> {
-                    if (info != null) {
-                      result.success(info.toMap());
-                    } else {
-                      result.error("MediaInfo", "InvalidFile", null);
-                    }
-                  });
+                try {
+                  MediaDetail info = future.get();
+                  mainThreadHandler.post(
+                          () -> {
+                            if (info != null) {
+                              result.success(info.toMap());
+                            } else {
+                              result.error("MediaInfo", "InvalidFile", null);
+                            }
+                          });
 
-            } catch (InterruptedException e) {
-              mainThreadHandler.post(() -> result.error("MediaInfo", e.getMessage(), null));
-            } catch (ExecutionException e) {
-              mainThreadHandler.post(
-                  () -> result.error("MediaInfo", e.getCause().getMessage(), null));
-            }
+                } catch (InterruptedException e) {
+                  mainThreadHandler.post(() -> result.error("MediaInfo", e.getMessage(), null));
+                } catch (ExecutionException e) {
+                  mainThreadHandler.post(
+                          () -> result.error("MediaInfo", e.getCause().getMessage(), null));
+                }
 
-            if (executorService.getQueue().size() < 1) {
-              mainThreadHandler.post(this::releaseExoPlayerAndResources);
-            }
-          });
+                if (executorService.getQueue().size() < 1) {
+                  mainThreadHandler.post(this::releaseExoPlayerAndResources);
+                }
+              });
     } else {
       executorService.execute(
-          () -> {
-            final VideoDetail info = handleMediaInfoMediaStore(path);
+              () -> {
+                final VideoDetail info = handleMediaInfoMediaStore(path);
 
-            mainThreadHandler.post(
-                () -> {
-                  if (info != null) {
-                    result.success(info.toMap());
-                  } else {
-                    result.error("MediaInfo", "InvalidFile", null);
-                  }
-                });
-          });
+                mainThreadHandler.post(
+                        () -> {
+                          if (info != null) {
+                            result.success(info.toMap());
+                          } else {
+                            result.error("MediaInfo", "InvalidFile", null);
+                          }
+                        });
+              });
     }
   }
 
   private void handleMediaInfoExoPlayer(
-      Context context, String path, CompletableFuture<MediaDetail> future) {
+          Context context, String path, CompletableFuture<MediaDetail> future) {
 
     ensureExoPlayer();
     exoPlayer.clearVideoSurface();
 
     final Listener listener =
-        new Listener() {
-          @Override
-          public void onTracksChanged(Tracks tracks) {
-            ImmutableList<Tracks.Group> trackGroups = tracks.getGroups();
+            new Listener() {
+              @Override
+              public void onTracksChanged(
+                      TrackGroupArray trackGroups, @NonNull TrackSelectionArray trackSelections) {
 
-            if (trackGroups.size() == 0) {
-              Log.d(TAG, "Tracks Changed, track groups currently empty");
-              return;
-            }
-
-            for (int i = 0; i < trackGroups.size(); i++) {
-              final Tracks.Group group = trackGroups.get(i);
-
-              if (group.getType() != C.TRACK_TYPE_VIDEO) {
-                continue;
-              }
-
-              for (int j = 0; j < group.length; j++) {
-                final Format format = group.getTrackFormat(j);
-
-                final String mimeType = format.sampleMimeType;
-                if (mimeType == null) {
-                  continue;
+                if(trackGroups.length == 0) {
+                  Log.d(TAG, "Tracks Changed, track groups currently empty");
+                  return;
                 }
 
-                if (mimeType.contains("video")) {
-                  int width = format.width;
-                  int height = format.height;
-                  int rotation = format.rotationDegrees;
+                for (int i = 0; i < trackGroups.length; i++) {
+                  TrackGroup tg = trackGroups.get(i);
+                  for (int j = 0; j < tg.length; j++) {
+                    final Format format = tg.getFormat(j);
 
-                  // Switch the width/height if video was taken in portrait mode
-                  if (rotation == 90 || rotation == 270) {
-                    int temp = width;
-                    //noinspection SuspiciousNameCombination
-                    width = height;
-                    height = temp;
+                    final String mimeType = format.sampleMimeType;
+                    if (mimeType == null) {
+                      continue;
+                    }
+
+                    if (mimeType.contains("video")) {
+                      int width = format.width;
+                      int height = format.height;
+                      int rotation = format.rotationDegrees;
+
+                      // Switch the width/height if video was taken in portrait mode
+                      if (rotation == 90 || rotation == 270) {
+                        int temp = width;
+                        //noinspection SuspiciousNameCombination
+                        width = height;
+                        height = temp;
+                      }
+
+                      VideoDetail info =
+                              new VideoDetail(
+                                      width,
+                                      height,
+                                      format.frameRate,
+                                      exoPlayer.getDuration(),
+                                      (short) trackGroups.length,
+                                      mimeType);
+                      future.complete(info);
+                      return;
+                    } else if (mimeType.contains("audio")) {
+
+                      MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
+                      mediaMetadataRetriever.setDataSource(path);
+                      String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+
+                      AudioDetail audio =
+                              new AudioDetail(Long.parseLong(durationStr), format.bitrate, mimeType);
+                      future.complete(audio);
+                      return;
+                    }
                   }
-
-                  VideoDetail info =
-                      new VideoDetail(
-                          width,
-                          height,
-                          format.frameRate,
-                          exoPlayer.getDuration(),
-                          (short) trackGroups.size(),
-                          mimeType);
-                  future.complete(info);
-                  return;
-                } else if (mimeType.contains("audio")) {
-                  
-                  MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
-                  mediaMetadataRetriever.setDataSource(path);
-                  String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-                  
-                  AudioDetail audio =
-                      new AudioDetail(Long.parseLong(durationStr), format.bitrate, mimeType);
-                  future.complete(audio);
-                  return;
                 }
+
+                future.completeExceptionally(new IOException("TracksUnreadable"));
               }
-            }
 
-            future.completeExceptionally(new IOException("TracksUnreadable"));
-          }
-
-          @Override
-          public void onPlayerError(@NonNull PlaybackException error) {
-            future.completeExceptionally(error);
-          }
-        };
+              @Override
+              public void onPlayerError(PlaybackException error) {
+                future.completeExceptionally(error);
+              }
+            };
 
     exoPlayer.addListener(listener);
 
-    future.whenComplete((videoDetail, throwable) -> exoPlayer.removeListener(listener));
+    future.whenComplete(
+            (videoDetail, throwable) -> exoPlayer.removeListener(listener));
 
-    DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context);
+    DataSource.Factory dataSourceFactory =
+            new DefaultDataSourceFactory(context, Util.getUserAgent(context, "media_info"));
     exoPlayer.setMediaSource(
-        new ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.parse(path))));
+            new ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(path))));
     exoPlayer.prepare();
   }
 
@@ -263,120 +264,123 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
   private OutputSurface surface;
 
   private void handleThumbnail(
-      Context context,
-      String path,
-      String targetPath,
-      int width,
-      int height,
-      int positionMs,
-      Result result,
-      Handler mainThreadHandler) {
+          Context context,
+          String path,
+          String targetPath,
+          int width,
+          int height,
+          int positionMs,
+          Result result,
+          Handler mainThreadHandler) {
 
     final File target = new File(targetPath);
 
     executorService.submit(
-        () -> {
-          if (target.exists()) {
-            mainThreadHandler.post(() -> result.error("MediaInfo", "FileOverwriteDenied", null));
-            return;
-          }
+            () -> {
+              if (target.exists()) {
+                mainThreadHandler.post(() -> result.error("MediaInfo", "FileOverwriteDenied", null));
+                return;
+              }
 
-          if (context == null) {
-            mainThreadHandler.post(() -> result.error("MediaInfo", "ContextDisappeared", null));
+              if (context == null) {
+                mainThreadHandler.post(() -> result.error("MediaInfo", "ContextDisappeared", null));
 
-            return;
-          }
+                return;
+              }
 
-          if (USE_EXOPLAYER) {
-            CompletableFuture<String> future = new CompletableFuture<>();
+              if (USE_EXOPLAYER) {
+                CompletableFuture<String> future = new CompletableFuture<>();
 
-            mainThreadHandler.post(
-                    () ->
-                            handleThumbnailExoPlayer(
-                                    context, path, width, height, positionMs, target, future));
+                mainThreadHandler.post(
+                        () -> handleThumbnailExoPlayer(context, path, width, height, positionMs, target,
+                                future));
 
-            try {
-              Log.d(TAG, "Await thumbnail result.");
-              final String futureResult = future.get();
-              Log.d(TAG, "Received thumbnail result.");
-              mainThreadHandler.post(() -> result.success(futureResult));
-            } catch (InterruptedException e) {
-              mainThreadHandler.post(() -> result.error("MediaInfo", "Interrupted", null));
-            } catch (ExecutionException e) {
-              mainThreadHandler.post(() -> result.error("MediaInfo", "Misc", null));
-            }
+                try {
+                  Log.d(TAG, "Await thumbnail result.");
+                  final String futureResult = future.get();
+                  Log.d(TAG, "Received thumbnail result.");
+                  mainThreadHandler.post(() -> result.success(futureResult));
+                } catch (InterruptedException e) {
+                  mainThreadHandler.post(() -> result.error("MediaInfo", "Interrupted", null));
+                } catch (ExecutionException e) {
+                  mainThreadHandler.post(() -> result.error("MediaInfo", "Misc", null));
+                }
 
-            if (executorService.getQueue().size() < 1) {
-              mainThreadHandler.post(this::releaseExoPlayerAndResources);
-            }
-          } else {
-            handleThumbnailMediaStore(
-                context, path, width, height, result, mainThreadHandler, target);
-          }
-        });
+                if (executorService.getQueue().size() < 1) {
+                  mainThreadHandler.post(this::releaseExoPlayerAndResources);
+                }
+              } else {
+                handleThumbnailMediaStore(
+                        context, path, width, height, result, mainThreadHandler, target);
+              }
+            });
   }
 
   private void handleThumbnailExoPlayer(
-      Context context,
-      String path,
-      int width,
-      int height,
-      int positionMs,
-      File target,
-      CompletableFuture<String> future) {
+          Context context,
+          String path,
+          int width,
+          int height,
+          int positionMs,
+          File target,
+          CompletableFuture<String> future) {
     ensureExoPlayer();
     ensureSurface(width, height);
 
     surface.setFrameFinished(
-        () -> {
-            Log.d(TAG,"handleThumbnailExoPlayer::setFrameFinished::init ");
+            () -> {
+              Log.d(TAG,"handleThumbnailExoPlayer::setFrameFinished::init ");
 
-          try {
-            surface.awaitNewImage(500);
-          } catch (Exception e) {
-            //
-          }
+              try {
+                surface.awaitNewImage(500);
+              } catch (Exception e) {
+                //
+              }
 
-          surface.drawImage();
+              surface.drawImage();
 
-          try {
-            final Bitmap bitmap = surface.saveFrame();
-            bitmap.compress(CompressFormat.JPEG, 90, new FileOutputStream(target));
-            bitmap.recycle();
+              try {
+                final Bitmap bitmap = surface.saveFrame();
+                bitmap.compress(CompressFormat.JPEG, 90, new FileOutputStream(target));
+                bitmap.recycle();
 
-            future.complete(target.getAbsolutePath());
-          } catch (IOException e) {
-            future.completeExceptionally(e);
-          }
-        });
+                future.complete(target.getAbsolutePath());
+              } catch (IOException e) {
+                future.completeExceptionally(e);
+              }
+            });
 
     final Listener eventListener =
-        new Listener() {
-          @Override
-          public void onPlayerError(@NonNull PlaybackException error) {
-            Log.e(TAG, "Player error", error);
-            future.completeExceptionally(error);
-          }
+            new Listener() {
+              @Override
+              public void onPlayerError(PlaybackException error) {
+                Log.e(TAG, "Player error", error);
+                future.completeExceptionally(error);
+              }
 
-          @Override
-          public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-            Log.d(TAG, "onPlayWhenReadyChanged");
+              @Override
+              public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                Log.d(TAG, "onPlayWhenReadyChanged");
 
-            exoPlayer.seekTo(positionMs);
-            Log.d(TAG, "onPlayWhenReadyChanged - Done seekTo: " + positionMs);
-          }
-        };
+                exoPlayer.seekTo(positionMs);
+                Log.d(TAG,
+                        "onPlayWhenReadyChanged - Done seekTo: " + positionMs);
+              }
+            };
 
     exoPlayer.addListener(eventListener);
 
-    future.whenComplete((s, throwable) -> exoPlayer.removeListener(eventListener));
+    future.whenComplete(
+            (s, throwable) -> exoPlayer.removeListener(eventListener));
 
-    DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context);
+    DataSource.Factory dataSourceFactory =
+            new DefaultDataSourceFactory(context, Util.getUserAgent(context, "media_info"));
 
     exoPlayer.setMediaSource(
-        new ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.parse(path))),
-        true);
+            new ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(path))),
+            true
+    );
     exoPlayer.prepare();
     Log.d(TAG, "done prepare..");
 
@@ -387,7 +391,8 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
   private synchronized void ensureExoPlayer() {
     if (exoPlayer == null) {
       DefaultTrackSelector selector = new DefaultTrackSelector(applicationContext);
-      exoPlayer = new ExoPlayer.Builder(applicationContext).setTrackSelector(selector).build();
+      exoPlayer = new SimpleExoPlayer.Builder(applicationContext).setTrackSelector(selector)
+              .build();
 
       int indexOfAudioRenderer = -1;
       for (int i = 0; i < exoPlayer.getRendererCount(); i++) {
@@ -398,7 +403,7 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
       }
 
       selector.setParameters(
-          selector.getParameters().buildUpon().setRendererDisabled(indexOfAudioRenderer, true));
+              selector.getParameters().buildUpon().setRendererDisabled(indexOfAudioRenderer, true));
     }
 
     exoPlayer.setPlayWhenReady(false);
@@ -430,13 +435,13 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
   }
 
   private void handleThumbnailMediaStore(
-      Context context,
-      String path,
-      int width,
-      int height,
-      Result result,
-      Handler mainThreadHandler,
-      File target) {
+          Context context,
+          String path,
+          int width,
+          int height,
+          Result result,
+          Handler mainThreadHandler,
+          File target) {
     File file = ThumbnailUtils.generateVideoThumbnail(context, path, width, height);
 
     if (file != null && file.renameTo(target)) {
