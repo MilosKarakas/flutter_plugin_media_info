@@ -177,6 +177,7 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
         new Listener() {
           @Override
           public void onTracksChanged(Tracks tracks) {
+            ImmutableList<Tracks.Group> trackGroups = tracks.getGroups();
 
             if (trackGroups.size() == 0) {
               Log.d(TAG, "Tracks Changed, track groups currently empty");
