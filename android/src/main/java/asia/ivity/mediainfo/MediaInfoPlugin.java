@@ -44,7 +44,7 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
 
   private static final String NAMESPACE = "asia.ivity.flutter";
 
-  private static final boolean USE_EXOPLAYER = false;
+  private static final boolean USE_EXOPLAYER = true;
 
   private Context applicationContext;
   private MethodChannel methodChannel;
