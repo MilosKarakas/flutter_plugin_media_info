@@ -110,7 +110,7 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
     String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
 
     AudioDetail audio =
-            new AudioDetail(Long.parseLong(durationStr), 64000, 'audio/aac');
+            new AudioDetail(Long.parseLong(durationStr), 64000, "audio/aac");
     future.complete(audio);
     return;
   }
