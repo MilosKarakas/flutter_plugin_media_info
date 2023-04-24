@@ -121,7 +121,7 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
               new AudioDetail(Long.parseLong(durationStr), 64000, "audio/aac");
       future.complete(audio);
     } catch (RuntimeException e) {
-      mainThreadHandler.post(() -> result.error("MediaInfo", "InvalidFile", null));
+      future.completeExceptionally(e);
     }
 
     return;
