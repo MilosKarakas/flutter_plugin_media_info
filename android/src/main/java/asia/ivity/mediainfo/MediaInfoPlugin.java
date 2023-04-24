@@ -80,7 +80,11 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
     final CompletableFuture<MediaDetail> future = new CompletableFuture<>();
     executorService.execute(
             () -> {
-              mainThreadHandler.post(() -> handleMediaInfoExoPlayer(context, path, future));
+              try {
+                mainThreadHandler.post(() -> handleMediaInfoExoPlayer(context, path, future));
+              } catch (RuntimeException e) {
+                mainThreadHandler.post(() -> result.error("MediaInfo", e.getMessage(), null));
+              }
 
               try {
                 MediaDetail info = future.get();
