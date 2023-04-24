@@ -98,6 +98,8 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
               } catch (ExecutionException e) {
                 mainThreadHandler.post(
                         () -> result.error("MediaInfo", e.getCause().getMessage(), null));
+              } catch (RuntimeException e) {
+                mainThreadHandler.post(() -> result.error("MediaInfo", e.getMessage(), null));
               }
             });
   }
@@ -106,19 +108,14 @@ public class MediaInfoPlugin implements MethodCallHandler, FlutterPlugin {
           Context context, String path, CompletableFuture<MediaDetail> future) {
 
     MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
-    try {
-      mediaMetadataRetriever.setDataSource(path);
-      String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
 
-      AudioDetail audio =
-              new AudioDetail(Long.parseLong(durationStr), 64000, "audio/aac");
-      future.complete(audio);
-    } catch (RuntimeException exception) {
-      // We return -1 for duration if the file is not valid
-      AudioDetail audio =
-              new AudioDetail(-1, 64000, "audio/aac");
-      future.complete(audio);
-    }
+    mediaMetadataRetriever.setDataSource(path);
+    String durationStr = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+
+    AudioDetail audio =
+            new AudioDetail(Long.parseLong(durationStr), 64000, "audio/aac");
+    future.complete(audio);
+
     return;
   }
 }
